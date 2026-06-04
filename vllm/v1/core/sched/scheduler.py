@@ -108,6 +108,7 @@ class Scheduler(SchedulerInterface):
             else self.scheduler_config.max_num_batched_tokens
         )
         self.max_model_len = vllm_config.model_config.max_model_len
+        self.max_waiting_time = self.scheduler_config.max_waiting_time
         self.enable_kv_cache_events = (
             self.kv_events_config is not None
             and self.kv_events_config.enable_kv_cache_events
@@ -557,6 +558,24 @@ class Scheduler(SchedulerInterface):
                 if req.lora_request and req.lora_request.lora_int_id > 0
             )
             assert len(scheduled_loras) <= self.lora_config.max_loras
+
+        # Evict requests that have waited too long in the queue.
+        if self.max_waiting_time > 0:
+            now = time.monotonic()
+            evicted_ids: list[str] = []
+            for queue in (self.waiting, self.skipped_waiting):
+                remaining = create_request_queue(self.policy)
+                while queue:
+                    req = queue.pop_request()
+                    if (now - req.arrival_time) > self.max_waiting_time:
+                        evicted_ids.append(req.request_id)
+                    else:
+                        remaining.append_request(req)
+                while remaining:
+                    queue.append_request(remaining.pop_request())
+            for req_id in evicted_ids:
+                self.finish_requests(req_id,
+                                    RequestStatus.FINISHED_OVERLOAD)
 
         # Next, schedule the WAITING requests.
         if not preempted_reqs and self._pause_state == PauseState.UNPAUSED:

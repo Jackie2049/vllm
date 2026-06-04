@@ -148,6 +148,13 @@ class SchedulerConfig:
     avoid gaps in GPU utilization, leading to better latency and throughput.
     """
 
+    max_waiting_time: float = 0
+    """Maximum time (in seconds) a request can wait in the scheduler's waiting
+    queue before being evicted. When set to 0 (default), the feature is
+    disabled and requests wait indefinitely. When set to a positive value,
+    requests exceeding this wait time are evicted with FINISHED_OVERLOAD status
+    and the client receives an HTTP 429 Too Many Requests response."""
+
     stream_interval: int = Field(default=1, ge=1)
     """The interval (or buffer size) for streaming in terms of token length.
     A smaller value (1) makes streaming smoother by sending each token immediately,

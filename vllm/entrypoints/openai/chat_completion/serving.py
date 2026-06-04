@@ -50,6 +50,7 @@ from vllm.entrypoints.openai.engine.protocol import (
 from vllm.entrypoints.openai.engine.serving import (
     GenerationError,
     OpenAIServing,
+    OverloadError,
     clamp_prompt_logprobs,
 )
 from vllm.entrypoints.openai.models.serving import OpenAIServingModels
@@ -925,6 +926,8 @@ class OpenAIServingChat(OpenAIServing):
                     )
 
         except GenerationError as e:
+            yield f"data: {self._convert_generation_error_to_streaming_response(e)}\n\n"
+        except OverloadError as e:
             yield f"data: {self._convert_generation_error_to_streaming_response(e)}\n\n"
         except Exception as e:
             logger.exception("Error in chat completion stream generator.")

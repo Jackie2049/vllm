@@ -42,6 +42,7 @@ from vllm.entrypoints.openai.engine.protocol import (
 from vllm.entrypoints.openai.engine.serving import (
     GenerationError,
     OpenAIServing,
+    OverloadError,
 )
 from vllm.entrypoints.openai.models.serving import OpenAIServingModels
 from vllm.entrypoints.openai.parser.harmony_utils import (
@@ -1548,6 +1549,12 @@ class OpenAIServingResponses(OpenAIServing):
                 ):
                     yield event_data
             except GenerationError as e:
+                error_json = self._convert_generation_error_to_streaming_response(e)
+                yield _increment_sequence_number_and_return(
+                    TypeAdapter(StreamingResponsesResponse).validate_json(error_json)
+                )
+                return
+            except OverloadError as e:
                 error_json = self._convert_generation_error_to_streaming_response(e)
                 yield _increment_sequence_number_and_return(
                     TypeAdapter(StreamingResponsesResponse).validate_json(error_json)

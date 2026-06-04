@@ -352,3 +352,12 @@ class GenerationError(Exception):
     def __init__(self, message: str = "Internal server error"):
         super().__init__(message)
         self.status_code = HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+class OverloadError(Exception):
+    """raised when finish_reason indicates overload (429)"""
+
+    def __init__(self, message: str = "Request exceeded maximum queue waiting "
+                        "time. Please retry later."):
+        super().__init__(message)
+        self.status_code = HTTPStatus.TOO_MANY_REQUESTS

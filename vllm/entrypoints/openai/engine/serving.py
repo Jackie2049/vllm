@@ -29,6 +29,7 @@ from vllm.entrypoints.openai.completion.protocol import (
 from vllm.entrypoints.openai.engine.protocol import (
     ErrorResponse,
     GenerationError,
+    OverloadError,
 )
 from vllm.entrypoints.openai.models.serving import OpenAIServingModels
 from vllm.entrypoints.openai.responses.protocol import ResponsesRequest
@@ -190,21 +191,31 @@ class OpenAIServing(BeamSearchOnlineMixin):
         return json_str
 
     def _raise_if_error(self, finish_reason: str | None, request_id: str) -> None:
-        """Raise GenerationError if finish_reason indicates an error."""
+        """Raise appropriate error if finish_reason indicates an error."""
         if finish_reason == "error":
             logger.error(
                 "Request %s failed with an internal error during generation",
                 request_id,
             )
             raise GenerationError("Internal server error")
+        if finish_reason == "overload":
+            logger.warning(
+                "Request %s evicted from queue due to overload",
+                request_id,
+            )
+            raise OverloadError()
 
     def _convert_generation_error_to_streaming_response(
-        self, e: GenerationError
+        self, e: GenerationError | OverloadError
     ) -> str:
-        """Convert GenerationError to streaming error response."""
+        """Convert GenerationError/OverloadError to streaming error response."""
+        if isinstance(e, OverloadError):
+            err_type = "OverloadError"
+        else:
+            err_type = "InternalServerError"
         return self.create_streaming_error_response(
             str(e),
-            err_type="InternalServerError",
+            err_type=err_type,
             status_code=e.status_code,
         )
 
