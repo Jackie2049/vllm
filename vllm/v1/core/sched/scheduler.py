@@ -2187,16 +2187,31 @@ class Scheduler(SchedulerInterface):
         # KV Connector:: update recv and send status from last step.
         for req_id in kv_connector_output.finished_recving or ():
             logger.debug("Finished recving KV transfer for request %s", req_id)
-            assert req_id in self.requests
+            if req_id not in self.requests:
+                logger.warning(
+                    "Request %s not found when finishing KV recv; "
+                    "may have been aborted during transfer", req_id
+                )
+                continue
             req = self.requests[req_id]
             if req.status == RequestStatus.WAITING_FOR_REMOTE_KVS:
                 self.finished_recving_kv_req_ids.add(req_id)
             else:
-                assert RequestStatus.is_finished(req.status)
+                if not RequestStatus.is_finished(req.status):
+                    logger.warning(
+                        "Request %s in unexpected status %s when finishing "
+                        "KV recv", req_id, req.status
+                    )
+                    continue
                 self._free_blocks(self.requests[req_id])
         for req_id in kv_connector_output.finished_sending or ():
             logger.debug("Finished sending KV transfer for request %s", req_id)
-            assert req_id in self.requests
+            if req_id not in self.requests:
+                logger.warning(
+                    "Request %s not found when finishing KV send; "
+                    "may have been aborted during transfer", req_id
+                )
+                continue
             self._free_blocks(self.requests[req_id])
 
     def _update_requests_with_invalid_blocks(
