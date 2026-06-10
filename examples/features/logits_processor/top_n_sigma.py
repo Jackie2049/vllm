@@ -73,7 +73,11 @@ class TopNSigmaLogitsProcessor(LogitsProcessor):
     def __init__(
         self, vllm_config: VllmConfig, device: torch.device, is_pin_memory: bool
     ):
+        self.device = device
+        self.is_pin_memory = is_pin_memory
         self.req_info: dict[int, float] = {}
+        self._cached_rows_cpu: torch.Tensor | None = None
+        self._cached_n_sigmas_cpu: torch.Tensor | None = None
 
     def is_argmax_invariant(self) -> bool:
         return True
@@ -83,24 +87,39 @@ class TopNSigmaLogitsProcessor(LogitsProcessor):
             self.validate_params(params)
             return params.extra_args and params.extra_args.get("top_n_sigma")
 
-        process_dict_updates(
+        needs_update = process_dict_updates(
             self.req_info,
             batch_update,
             lambda params, _, __: extract_n_sigma(params),
         )
 
+        # Only rebuild CPU caches when dict actually changed.
+        if needs_update:
+            if self.req_info:
+                self._cached_rows_cpu = torch.tensor(
+                    list(self.req_info.keys()), dtype=torch.long,
+                    pin_memory=self.is_pin_memory,
+                )
+                self._cached_n_sigmas_cpu = torch.tensor(
+                    list(self.req_info.values()), dtype=torch.float32,
+                    pin_memory=self.is_pin_memory,
+                )
+            else:
+                self._cached_rows_cpu = None
+                self._cached_n_sigmas_cpu = None
+
     def apply(self, logits: torch.Tensor) -> torch.Tensor:
-        if not self.req_info:
+        if self._cached_rows_cpu is None:
             return logits
 
-        rows = torch.tensor(
-            list(self.req_info.keys()), dtype=torch.long, device=logits.device
+        rows = self._cached_rows_cpu.to(
+            device=logits.device, non_blocking=True,
         )
-        n_sigmas = torch.tensor(
-            list(self.req_info.values()), dtype=logits.dtype, device=logits.device
+        n_sigmas = self._cached_n_sigmas_cpu.to(
+            device=logits.device, dtype=logits.dtype, non_blocking=True,
         )
 
-        selected_logits = logits[rows].clone()
+        selected_logits = logits[rows]
 
         # Skip rows with NaN/Inf or all-equal logits (std == 0)
         finite_mask = torch.isfinite(selected_logits).all(dim=-1)
