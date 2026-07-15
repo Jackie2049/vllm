@@ -260,9 +260,15 @@ def get_lora_op_configs(
             "split_k": 1,
         }
     else:
+        # On sm_90 (Hopper), BLOCK_N=128 causes NaN in lora_expand due to
+        # Triton OOB tile reads when N is not aligned to 128 (issue #48590).
+        # Use BLOCK_N=32 on sm_90 to avoid this.
+        default_block_n = 128
+        if current_platform.is_cuda() and current_platform.has_device_capability(90):
+            default_block_n = 32
         default = {
             "block_m": 64,
-            "block_n": 64 if num_slices > 1 else 128,
+            "block_n": 64 if num_slices > 1 else default_block_n,
             "block_k": 32,
             "num_warps": 4,
             "num_ctas": 1,
